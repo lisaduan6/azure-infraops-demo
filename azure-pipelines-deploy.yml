@@ -1,0 +1,149 @@
+# 部署 Pipeline：自动 dev/uat，prod 需审批（通过 Azure DevOps Environment）
+
+resources:
+  pipelines:
+    - pipeline: ciPipeline
+      source: "infraops-ci"         # CI Pipeline 名称
+      trigger:
+        branches:
+          include:
+            - main
+
+trigger: none
+
+variables:
+  ACR_NAME: "$(ACR_NAME)"
+  ACR_LOGIN_SERVER: "$(ACR_NAME).azurecr.io"
+
+  AKS_RG_DEV: "$(AKS_RESOURCE_GROUP_DEV)"
+  AKS_NAME_DEV: "$(AKS_CLUSTER_NAME_DEV)"
+
+  AKS_RG_UAT: "$(AKS_RESOURCE_GROUP_UAT)"
+  AKS_NAME_UAT: "$(AKS_CLUSTER_NAME_UAT)"
+
+  AKS_RG_PROD: "$(AKS_RESOURCE_GROUP_PROD)"
+  AKS_NAME_PROD: "$(AKS_CLUSTER_NAME_PROD)"
+
+pool:
+  vmImage: "ubuntu-latest"
+
+stages:
+- stage: Deploy_Dev
+  displayName: "Deploy to DEV AKS"
+  jobs:
+  - job: DeployDev
+    displayName: "Deploy to DEV"
+    steps:
+    - checkout: self
+
+    - download: ciPipeline
+      artifact: image-info
+      displayName: "Download image info from CI"
+
+    - script: |
+        IMAGE_FULL_NAME=$(cat $(Pipeline.Workspace)/ciPipeline/image-info/image.txt)
+        echo "Using image: $IMAGE_FULL_NAME"
+        echo "##vso[task.setvariable variable=IMAGE_FULL_NAME]$IMAGE_FULL_NAME"
+      displayName: "Export IMAGE_FULL_NAME"
+
+    - task: AzureCLI@2
+      displayName: "Get AKS DEV credentials"
+      inputs:
+        azureSubscription: "azure-sp"
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          az aks get-credentials             --resource-group $(AKS_RG_DEV)             --name $(AKS_NAME_DEV)             --overwrite-existing
+
+    - task: AzureCLI@2
+      displayName: "Apply manifests & rollout on DEV"
+      inputs:
+        azureSubscription: "azure-sp"
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          set -e
+          kubectl apply -f k8s/
+          kubectl set image deployment/app-deployment             app-container=$(IMAGE_FULL_NAME) -n app
+          kubectl rollout status deployment/app-deployment -n app
+
+- stage: Deploy_UAT
+  displayName: "Deploy to UAT AKS"
+  dependsOn: Deploy_Dev
+  jobs:
+  - job: DeployUat
+    displayName: "Deploy to UAT"
+    steps:
+    - checkout: self
+
+    - download: ciPipeline
+      artifact: image-info
+      displayName: "Download image info from CI"
+
+    - script: |
+        IMAGE_FULL_NAME=$(cat $(Pipeline.Workspace)/ciPipeline/image-info/image.txt)
+        echo "Using image: $IMAGE_FULL_NAME"
+        echo "##vso[task.setvariable variable=IMAGE_FULL_NAME]$IMAGE_FULL_NAME"
+      displayName: "Export IMAGE_FULL_NAME"
+
+    - task: AzureCLI@2
+      displayName: "Get AKS UAT credentials"
+      inputs:
+        azureSubscription: "azure-sp"
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          az aks get-credentials             --resource-group $(AKS_RG_UAT)             --name $(AKS_NAME_UAT)             --overwrite-existing
+
+    - task: AzureCLI@2
+      displayName: "Apply manifests & rollout on UAT"
+      inputs:
+        azureSubscription: "azure-sp"
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          set -e
+          kubectl apply -f k8s/
+          kubectl set image deployment/app-deployment             app-container=$(IMAGE_FULL_NAME) -n app
+          kubectl rollout status deployment/app-deployment -n app
+
+- stage: Deploy_Prod
+  displayName: "Deploy to PROD AKS"
+  dependsOn: Deploy_UAT
+  environment: "prod"   # 在 Azure DevOps Environment 中配置审批
+  jobs:
+  - job: DeployProd
+    displayName: "Deploy to PROD"
+    steps:
+    - checkout: self
+
+    - download: ciPipeline
+      artifact: image-info
+      displayName: "Download image info from CI"
+
+    - script: |
+        IMAGE_FULL_NAME=$(cat $(Pipeline.Workspace)/ciPipeline/image-info/image.txt)
+        echo "Using image: $IMAGE_FULL_NAME"
+        echo "##vso[task.setvariable variable=IMAGE_FULL_NAME]$IMAGE_FULL_NAME"
+      displayName: "Export IMAGE_FULL_NAME"
+
+    - task: AzureCLI@2
+      displayName: "Get AKS PROD credentials"
+      inputs:
+        azureSubscription: "azure-sp"
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          az aks get-credentials             --resource-group $(AKS_RG_PROD)             --name $(AKS_NAME_PROD)             --overwrite-existing
+
+    - task: AzureCLI@2
+      displayName: "Apply manifests & rollout on PROD"
+      inputs:
+        azureSubscription: "azure-sp"
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          set -e
+          kubectl apply -f k8s/
+          kubectl set image deployment/app-deployment             app-container=$(IMAGE_FULL_NAME) -n app
+          kubectl rollout status deployment/app-deployment -n app

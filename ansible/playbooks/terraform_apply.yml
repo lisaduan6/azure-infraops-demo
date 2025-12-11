@@ -1,0 +1,23 @@
+---
+- name: Apply Terraform for selected environment
+  hosts: "{{ target_env | default('dev') }}"
+  gather_facts: false
+
+  vars:
+    terraform_dir: "{{ playbook_dir }}/../../terraform"
+    environment: "{{ hostvars[inventory_hostname].environment | default('dev') }}"
+
+  tasks:
+    - name: Show selected environment
+      ansible.builtin.debug:
+        msg: "Applying Terraform for env={{ environment }}"
+
+    - name: Terraform init
+      ansible.builtin.shell: terraform init
+      args:
+        chdir: "{{ terraform_dir }}"
+
+    - name: Terraform apply
+      ansible.builtin.shell: terraform apply -auto-approve -var "environment={{ environment }}"
+      args:
+        chdir: "{{ terraform_dir }}"

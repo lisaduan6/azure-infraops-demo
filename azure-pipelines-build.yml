@@ -1,0 +1,66 @@
+trigger:
+  branches:
+    include:
+      - main
+
+variables:
+  IMAGE_NAME: "infraops-demo-app"
+  DOCKER_FILE: "app/Dockerfile"
+  ACR_NAME: "$(ACR_NAME)"
+  ACR_LOGIN_SERVER: "$(ACR_NAME).azurecr.io"
+
+pool:
+  vmImage: "ubuntu-latest"
+
+steps:
+- checkout: self
+
+# Python setup + lint + tests
+- task: UsePythonVersion@0
+  displayName: "Use Python 3.11"
+  inputs:
+    versionSpec: "3.11"
+
+- script: |
+    python -m pip install --upgrade pip
+    pip install -r app/requirements.txt
+    pip install flake8 pytest
+  displayName: "Install dependencies, flake8, pytest"
+
+- script: |
+    flake8 app
+  displayName: "Run flake8 on app/"
+
+- script: |
+    pytest -q
+  displayName: "Run pytest"
+
+# Build & push image to ACR
+- task: AzureCLI@2
+  displayName: "Build & Push Docker Image to ACR"
+  inputs:
+    azureSubscription: "azure-sp"     # Azure Resource Manager service connection
+    scriptType: bash
+    scriptLocation: inlineScript
+    inlineScript: |
+      set -e
+      echo "Logging in to ACR..."
+      az acr login --name $(ACR_NAME)
+
+      IMAGE_TAG=$(Build.SourceVersion)
+      IMAGE_FULL_NAME=$(ACR_LOGIN_SERVER)/$(IMAGE_NAME):$IMAGE_TAG
+
+      echo "Building image: $IMAGE_FULL_NAME"
+      docker build -t $IMAGE_FULL_NAME -f $(DOCKER_FILE) app
+
+      echo "Pushing image..."
+      docker push $IMAGE_FULL_NAME
+
+      echo $IMAGE_FULL_NAME > image.txt
+
+- task: PublishBuildArtifacts@1
+  displayName: "Publish image info artifact"
+  inputs:
+    PathtoPublish: "image.txt"
+    ArtifactName: "image-info"
+    publishLocation: "Container"

@@ -1,0 +1,25 @@
+---
+- name: Update application image in AKS deployment
+  hosts: "{{ target_env | default('dev') }}"
+  gather_facts: false
+
+  vars:
+    kubeconfig_path: "{{ lookup('env', 'HOME') + '/.kube/config' }}"
+    namespace: "app"
+    deployment_name: "app-deployment"
+    container_name: "app-container"
+    new_image: ""
+
+  tasks:
+    - name: Fail if new_image not provided
+      ansible.builtin.fail:
+        msg: "You must pass new_image, e.g. -e new_image=myacr.azurecr.io/infraops-demo-app:tag"
+      when: new_image == ""
+
+    - name: Update K8s deployment image
+      ansible.builtin.shell: >
+        kubectl set image deployment/{{ deployment_name }}
+        {{ container_name }}={{ new_image }}
+        -n {{ namespace }}
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"

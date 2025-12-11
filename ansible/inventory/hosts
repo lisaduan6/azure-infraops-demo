@@ -1,0 +1,8 @@
+[dev]
+localhost ansible_connection=local environment=dev
+
+[uat]
+localhost ansible_connection=local environment=uat
+
+[prod]
+localhost ansible_connection=local environment=prod

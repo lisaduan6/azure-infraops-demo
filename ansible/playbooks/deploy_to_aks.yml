@@ -1,0 +1,38 @@
+---
+- name: Deploy Kubernetes manifests to AKS
+  hosts: "{{ target_env | default('dev') }}"
+  gather_facts: false
+
+  vars:
+    kubeconfig_path: "{{ lookup('env', 'HOME') + '/.kube/config' }}"
+    k8s_dir: "{{ playbook_dir }}/../../k8s"
+    monitoring_dir: "{{ playbook_dir }}/../../monitoring"
+
+  tasks:
+    - name: Ensure kubeconfig exists
+      ansible.builtin.stat:
+        path: "{{ kubeconfig_path }}"
+      register: kubeconfig_stat
+
+    - name: Fail if kubeconfig missing
+      ansible.builtin.fail:
+        msg: "Kubeconfig not found at {{ kubeconfig_path }}. Run generate_kubeconfig.yml first."
+      when: not kubeconfig_stat.stat.exists
+
+    - name: Create app namespace
+      ansible.builtin.shell: |
+        kubectl apply -f {{ k8s_dir }}/namespace.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+
+    - name: Deploy application manifests
+      ansible.builtin.shell: |
+        kubectl apply -f {{ k8s_dir }}
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+
+    - name: Deploy monitoring stack (Prometheus + Grafana)
+      ansible.builtin.shell: |
+        kubectl apply -f {{ monitoring_dir }}
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
