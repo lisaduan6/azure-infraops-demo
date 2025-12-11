@@ -2,15 +2,21 @@ trigger:
   branches:
     include:
       - main
+      - release/*
+pr:
+  branches:
+    include:
+      - main
+      - release/*
 
 variables:
   IMAGE_NAME: "infraops-demo-app"
   DOCKER_FILE: "app/Dockerfile"
-  ACR_NAME: "$(ACR_NAME)"
-  ACR_LOGIN_SERVER: "$(ACR_NAME).azurecr.io"
+  REGISTRY_PREFIX: "local"
 
 pool:
-  vmImage: "ubuntu-latest"
+  name: "local pool"
+  # vmImage: "ubuntu-latest"
 
 steps:
 - checkout: self
@@ -25,38 +31,41 @@ steps:
     python -m pip install --upgrade pip
     pip install -r app/requirements.txt
     pip install flake8 pytest
-  displayName: "Install dependencies, flake8, pytest"
+  displayName: "Install dependencies, flake8, and pytest"
 
 - script: |
     flake8 app
   displayName: "Run flake8 on app/"
 
 - script: |
-    pytest -q
+    echo "Default working directory: %CD%"
+    echo "System.DefaultWorkingDirectory: $(System.DefaultWorkingDirectory)"
+
+    REM Add repository root to PYTHONPATH so the 'app' package can be resolved
+    set PYTHONPATH=$(System.DefaultWorkingDirectory)
+
+    echo "PYTHONPATH: %PYTHONPATH%"
+
+    python -m pytest -q
   displayName: "Run pytest"
 
-# Build & push image to ACR
-- task: AzureCLI@2
-  displayName: "Build & Push Docker Image to ACR"
-  inputs:
-    azureSubscription: "azure-sp"     # Azure Resource Manager service connection
-    scriptType: bash
-    scriptLocation: inlineScript
-    inlineScript: |
-      set -e
-      echo "Logging in to ACR..."
-      az acr login --name $(ACR_NAME)
+# Build Docker image
+- script: |
+    echo Compute image tag from commit...
 
-      IMAGE_TAG=$(Build.SourceVersion)
-      IMAGE_FULL_NAME=$(ACR_LOGIN_SERVER)/$(IMAGE_NAME):$IMAGE_TAG
+    REM Use Azure DevOps built-in environment variable BUILD_SOURCEVERSION
+    set IMAGE_TAG=%BUILD_SOURCEVERSION%
+    echo IMAGE_TAG=%IMAGE_TAG%
 
-      echo "Building image: $IMAGE_FULL_NAME"
-      docker build -t $IMAGE_FULL_NAME -f $(DOCKER_FILE) app
+    REM $(REGISTRY_PREFIX) and $(IMAGE_NAME) are expanded by Azure DevOps
+    set IMAGE_FULL_NAME=$(REGISTRY_PREFIX)/$(IMAGE_NAME):%IMAGE_TAG%
+    echo IMAGE_FULL_NAME=%IMAGE_FULL_NAME%
 
-      echo "Pushing image..."
-      docker push $IMAGE_FULL_NAME
+    echo Building image: %IMAGE_FULL_NAME%
+    docker build -t %IMAGE_FULL_NAME% -f $(DOCKER_FILE) app
 
-      echo $IMAGE_FULL_NAME > image.txt
+    echo %IMAGE_FULL_NAME%>image.txt
+  displayName: "Build Docker image (no push)"
 
 - task: PublishBuildArtifacts@1
   displayName: "Publish image info artifact"
