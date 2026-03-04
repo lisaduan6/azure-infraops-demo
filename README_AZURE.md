@@ -1,6 +1,5 @@
-# Azure DevOps / InfraOps Demo 项目（AKS + ACR + Terraform + Ansible）
+# Azure DevOps / InfraOps 项目（AKS + ACR + Terraform + Ansible）
 
-用于 DevOps / SRE / Infra 面试演示的完整 Demo，包含：
 
 - Terraform：AKS + ACR + Resource Group（多环境 dev / uat / prod，远程 state + workspace 示例）
 - Ansible：自动化 Terraform、kubeconfig、部署 K8s、滚动更新镜像
